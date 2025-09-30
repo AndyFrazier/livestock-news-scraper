@@ -89,7 +89,13 @@ async function scrapeScottishFarmer(keywords) {
       
       const title = titleElem.text().trim();
       let url = linkElem.attr('href');
-      const summary = summaryElem.text().trim();
+      let summary = summaryElem.text().trim();
+      
+      // If no summary, try to get text from multiple p tags
+      if (!summary || summary.length < 50) {
+        summary = $elem.find('p').map((i, el) => $(el).text().trim()).get().join(' ').substring(0, 300);
+      }
+      
       const dateText = dateElem.text().trim() || dateElem.attr('datetime');
       
       // Make URL absolute if relative
@@ -113,7 +119,7 @@ async function scrapeScottishFarmer(keywords) {
             url,
             source: 'The Scottish Farmer',
             date,
-            summary: summary.substring(0, 200) || 'No summary available',
+            summary: summary.substring(0, 300) || 'Click to read the full article for details.',
             keywords: matchedKeywords
           });
         }
@@ -207,7 +213,13 @@ async function scrapeFarmersWeekly(keywords) {
       
       const title = titleElem.text().trim();
       let url = linkElem.attr('href');
-      const summary = summaryElem.text().trim();
+      let summary = summaryElem.text().trim();
+      
+      // Better summary extraction
+      if (!summary || summary.length < 50) {
+        summary = $elem.find('p').map((i, el) => $(el).text().trim()).get().join(' ').substring(0, 300);
+      }
+      
       const dateText = dateElem.text().trim() || dateElem.attr('datetime');
       
       if (url && !url.startsWith('http')) {
@@ -229,7 +241,7 @@ async function scrapeFarmersWeekly(keywords) {
             url,
             source: 'Farmers Weekly',
             date,
-            summary: summary.substring(0, 200) || 'No summary available',
+            summary: summary.substring(0, 300) || 'Click to read the full article for details.',
             keywords: matchedKeywords
           });
         }
@@ -237,6 +249,132 @@ async function scrapeFarmersWeekly(keywords) {
     });
   } catch (error) {
     console.error('Error scraping Farmers Weekly:', error.message);
+  }
+  
+  return articles;
+}
+
+// Scrape Irish Farmers Journal
+async function scrapeIrishFarmersJournal(keywords) {
+  const articles = [];
+  
+  try {
+    const response = await axios.get('https://www.farmersjournal.ie/livestock', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+    
+    const $ = cheerio.load(response.data);
+    
+    $('article, .article, .story').each((i, element) => {
+      const $elem = $(element);
+      
+      const titleElem = $elem.find('h2, h3, .headline, .title').first();
+      const linkElem = $elem.find('a').first();
+      const summaryElem = $elem.find('p, .excerpt, .description').first();
+      const dateElem = $elem.find('time, .date, .published').first();
+      
+      const title = titleElem.text().trim();
+      let url = linkElem.attr('href');
+      let summary = summaryElem.text().trim();
+      
+      if (!summary || summary.length < 50) {
+        summary = $elem.find('p').map((i, el) => $(el).text().trim()).get().join(' ').substring(0, 300);
+      }
+      
+      const dateText = dateElem.text().trim() || dateElem.attr('datetime');
+      
+      if (url && !url.startsWith('http')) {
+        url = 'https://www.farmersjournal.ie' + url;
+      }
+      
+      if (title && url) {
+        const date = parseDate(dateText) || new Date().toISOString().split('T')[0];
+        
+        const textToSearch = (title + ' ' + summary).toLowerCase();
+        const matchedKeywords = keywords.filter(keyword => 
+          textToSearch.includes(keyword.toLowerCase())
+        );
+        
+        if (matchedKeywords.length > 0 && isWithinSevenDays(date)) {
+          articles.push({
+            id: `ifj-${i}`,
+            title,
+            url,
+            source: 'Irish Farmers Journal',
+            date,
+            summary: summary.substring(0, 300) || 'Click to read the full article for details.',
+            keywords: matchedKeywords
+          });
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error scraping Irish Farmers Journal:', error.message);
+  }
+  
+  return articles;
+}
+
+// Scrape Beef Farmer
+async function scrapeBeefFarmer(keywords) {
+  const articles = [];
+  
+  try {
+    const response = await axios.get('https://beeffarmer.co.uk/news/', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+    
+    const $ = cheerio.load(response.data);
+    
+    $('article, .post, .news-item').each((i, element) => {
+      const $elem = $(element);
+      
+      const titleElem = $elem.find('h2, h3, .entry-title, .title').first();
+      const linkElem = $elem.find('a').first();
+      const summaryElem = $elem.find('p, .excerpt, .entry-summary').first();
+      const dateElem = $elem.find('time, .date, .entry-date').first();
+      
+      const title = titleElem.text().trim();
+      let url = linkElem.attr('href');
+      let summary = summaryElem.text().trim();
+      
+      if (!summary || summary.length < 50) {
+        summary = $elem.find('p').map((i, el) => $(el).text().trim()).get().join(' ').substring(0, 300);
+      }
+      
+      const dateText = dateElem.text().trim() || dateElem.attr('datetime');
+      
+      if (url && !url.startsWith('http')) {
+        url = 'https://beeffarmer.co.uk' + url;
+      }
+      
+      if (title && url) {
+        const date = parseDate(dateText) || new Date().toISOString().split('T')[0];
+        
+        const textToSearch = (title + ' ' + summary).toLowerCase();
+        const matchedKeywords = keywords.filter(keyword => 
+          textToSearch.includes(keyword.toLowerCase())
+        );
+        
+        if (matchedKeywords.length > 0 && isWithinSevenDays(date)) {
+          articles.push({
+            id: `bf-${i}`,
+            title,
+            url,
+            source: 'Beef Farmer',
+            date,
+            summary: summary.substring(0, 300) || 'Click to read the full article for details.',
+            keywords: matchedKeywords
+          });
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error scraping Beef Farmer:', error.message);
   }
   
   return articles;
@@ -254,18 +392,27 @@ app.post('/api/search', async (req, res) => {
     console.log('Searching for keywords:', keywords);
     
     // Scrape all sources in parallel
-    const [scottishFarmerArticles, farmersGuardianArticles, farmersWeeklyArticles] = 
-      await Promise.all([
-        scrapeScottishFarmer(keywords),
-        scrapeFarmersGuardian(keywords),
-        scrapeFarmersWeekly(keywords)
-      ]);
+    const [
+      scottishFarmerArticles, 
+      farmersGuardianArticles, 
+      farmersWeeklyArticles,
+      irishFarmersJournalArticles,
+      beefFarmerArticles
+    ] = await Promise.all([
+      scrapeScottishFarmer(keywords),
+      scrapeFarmersGuardian(keywords),
+      scrapeFarmersWeekly(keywords),
+      scrapeIrishFarmersJournal(keywords),
+      scrapeBeefFarmer(keywords)
+    ]);
     
     // Combine all articles
     const allArticles = [
       ...scottishFarmerArticles,
       ...farmersGuardianArticles,
-      ...farmersWeeklyArticles
+      ...farmersWeeklyArticles,
+      ...irishFarmersJournalArticles,
+      ...beefFarmerArticles
     ];
     
     // Sort by date (newest first)
