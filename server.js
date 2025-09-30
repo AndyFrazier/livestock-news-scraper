@@ -51,20 +51,16 @@ function parseDate(dateText) {
   return new Date().toISOString().split('T')[0];
 }
 
-// Scrape Farmers Weekly using RSS feed (more reliable)
-async function scrapeFWI(keywords) {
+// Scrape using Google News RSS (most reliable)
+async function scrapeGoogleNews(keywords) {
   const articles = [];
   
-  // Try multiple RSS feeds
-  const rssFeeds = [
-    'https://www.fwi.co.uk/livestock/feed',
-    'https://www.fwi.co.uk/feed'
-  ];
-  
-  for (const feedUrl of rssFeeds) {
+  for (const keyword of keywords) {
     try {
-      console.log(`Trying FWI feed: ${feedUrl}`);
-      const rssResponse = await axios.get(feedUrl, {
+      console.log(`Trying Google News RSS for keyword: ${keyword}`);
+      const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword + ' farming livestock UK')}`;
+      
+      const rssResponse = await axios.get(rssUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
         timeout: 10000
       });
@@ -75,30 +71,83 @@ async function scrapeFWI(keywords) {
         const $item = $(elem);
         const title = $item.find('title').text().trim();
         const url = $item.find('link').text().trim();
-        const description = $item.find('description').text().trim().replace(/<[^>]*>/g, ''); // Strip HTML
+        const description = $item.find('description').text().trim().replace(/<[^>]*>/g, '');
         const pubDate = $item.find('pubDate').text().trim();
+        const source = $item.find('source').text().trim() || 'Google News';
         
         if (title && url && !articles.find(a => a.url === url)) {
           articles.push({
             title,
             url,
             summary: description || 'Read the full article for more details.',
-            source: 'Farmers Weekly',
-            date: parseDate(pubDate)
+            source: source,
+            date: parseDate(pubDate),
+            keywords: [keyword]
           });
         }
       });
       
-      console.log(`FWI feed ${feedUrl} found ${articles.length} total articles so far`);
+      console.log(`Google News found ${articles.length} total articles so far`);
       
     } catch (error) {
-      console.error(`FWI feed ${feedUrl} error:`, error.message);
+      console.error(`Google News error for ${keyword}:`, error.message);
     }
   }
   
+  return articles.map((a, i) => ({
+    id: `gn-${i}`,
+    ...a,
+    date: a.date || new Date().toISOString().split('T')[0]
+  }));
+}
+
+// Scrape Farmers Weekly - try actual article pages
+async function scrapeFWI(keywords) {
+  const articles = [];
+  
+  try {
+    // Try the "latest articles" page which showed up in debug
+    console.log('Trying FWI latest articles page');
+    const response = await axios.get('https://www.fwi.co.uk/latest/articles-published-last-7-days', {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 10000
+    });
+    
+    const $ = cheerio.load(response.data);
+    
+    // Find all links
+    $('a').each((i, elem) => {
+      if (articles.length >= 30) return false;
+      
+      const href = $(elem).attr('href');
+      if (!href || !href.includes('/livestock')) return;
+      
+      const url = href.startsWith('http') ? href : `https://www.fwi.co.uk${href}`;
+      const title = $(elem).text().trim();
+      
+      // Also try to find title in parent elements
+      let betterTitle = $(elem).closest('article, div[class*="article"]').find('h2, h3, h4').first().text().trim();
+      if (!betterTitle) betterTitle = title;
+      
+      if (betterTitle.length > 20 && !articles.find(a => a.url === url)) {
+        articles.push({
+          title: betterTitle,
+          url,
+          source: 'Farmers Weekly',
+          needsSummary: true
+        });
+      }
+    });
+    
+    console.log(`FWI found ${articles.length} potential articles`);
+    
+  } catch (error) {
+    console.error('FWI error:', error.message);
+  }
+  
   const filtered = articles.filter(article => {
-    const text = (article.title + ' ' + article.summary).toLowerCase();
-    return keywords.some(kw => text.includes(kw.toLowerCase()));
+    const titleLower = article.title.toLowerCase();
+    return keywords.some(kw => titleLower.includes(kw.toLowerCase()));
   });
   
   console.log(`FWI filtered to ${filtered.length} articles matching keywords`);
@@ -108,9 +157,9 @@ async function scrapeFWI(keywords) {
     title: a.title,
     url: a.url,
     source: a.source,
-    date: a.date || new Date().toISOString().split('T')[0],
-    summary: a.summary,
-    keywords: keywords.filter(kw => (a.title + ' ' + a.summary).toLowerCase().includes(kw.toLowerCase()))
+    date: new Date().toISOString().split('T')[0],
+    summary: 'Click the link to read the full article from Farmers Weekly.',
+    keywords: keywords.filter(kw => a.title.toLowerCase().includes(kw.toLowerCase()))
   }));
 }
 
@@ -234,22 +283,28 @@ app.post('/api/search', async (req, res) => {
     
     console.log('Searching for keywords:', keywords);
     
-    const [fwiArticles, sfArticles, fgArticles] = await Promise.all([
+    const [googleArticles, fwiArticles, sfArticles, fgArticles] = await Promise.all([
+      scrapeGoogleNews(keywords),
       scrapeFWI(keywords),
       scrapeScottishFarmer(keywords),
       scrapeFarmersGuardian(keywords)
     ]);
     
-    const allArticles = [...fwiArticles, ...sfArticles, ...fgArticles];
+    const allArticles = [...googleArticles, ...fwiArticles, ...sfArticles, ...fgArticles];
     
-    allArticles.sort((a, b) => new Date(b.date) - new Date(a.date));
+    // Remove duplicates by URL
+    const uniqueArticles = allArticles.filter((article, index, self) =>
+      index === self.findIndex((a) => a.url === article.url)
+    );
     
-    console.log(`Found ${allArticles.length} articles`);
+    uniqueArticles.sort((a, b) => new Date(b.date) - new Date(a.date));
+    
+    console.log(`Found ${uniqueArticles.length} unique articles`);
     
     res.json({
       success: true,
-      count: allArticles.length,
-      articles: allArticles
+      count: uniqueArticles.length,
+      articles: uniqueArticles
     });
     
   } catch (error) {
