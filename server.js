@@ -58,7 +58,8 @@ async function scrapeGoogleNews(keywords) {
   for (const keyword of keywords) {
     try {
       console.log(`Trying Google News RSS for keyword: ${keyword}`);
-      const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword + ' farming livestock UK')}`;
+      // Add "when:7d" to limit to last 7 days in Google News
+      const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword + ' farming livestock UK')}+when:7d&hl=en-GB&gl=GB&ceid=GB:en`;
       
       const rssResponse = await axios.get(rssUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
@@ -297,14 +298,23 @@ app.post('/api/search', async (req, res) => {
       index === self.findIndex((a) => a.url === article.url)
     );
     
-    uniqueArticles.sort((a, b) => new Date(b.date) - new Date(a.date));
+    // Filter to only articles from last 7 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     
-    console.log(`Found ${uniqueArticles.length} unique articles`);
+    const recentArticles = uniqueArticles.filter(article => {
+      const articleDate = new Date(article.date);
+      return articleDate >= sevenDaysAgo;
+    });
+    
+    recentArticles.sort((a, b) => new Date(b.date) - new Date(a.date));
+    
+    console.log(`Found ${uniqueArticles.length} unique articles, ${recentArticles.length} from last 7 days`);
     
     res.json({
       success: true,
-      count: uniqueArticles.length,
-      articles: uniqueArticles
+      count: recentArticles.length,
+      articles: recentArticles
     });
     
   } catch (error) {
