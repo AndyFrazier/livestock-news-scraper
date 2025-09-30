@@ -1,4 +1,4 @@
-// server.js - Improved News Scraper Backend
+// server.js - Simplified News Scraper Backend
 // Install dependencies: npm install express axios cheerio cors
 
 const express = require('express');
@@ -9,7 +9,6 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Enable CORS for all origins
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
@@ -17,35 +16,27 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Helper function to check if date is within last 7 days
 function isWithinSevenDays(dateString) {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  
   const articleDate = new Date(dateString);
   return articleDate >= sevenDaysAgo;
 }
 
-// Helper function to extract date from various formats
 function parseDate(dateText) {
-  if (!dateText) return null;
+  if (!dateText) return new Date().toISOString().split('T')[0];
   
   const daysAgoMatch = dateText.match(/(\d+)\s+days?\s+ago/i);
   if (daysAgoMatch) {
-    const daysAgo = parseInt(daysAgoMatch[1]);
     const date = new Date();
-    date.setDate(date.getDate() - daysAgo);
+    date.setDate(date.getDate() - parseInt(daysAgoMatch[1]));
     return date.toISOString().split('T')[0];
   }
   
-  const hoursAgoMatch = dateText.match(/(\d+)\s+hours?\s+ago/i);
-  if (hoursAgoMatch) {
+  if (dateText.toLowerCase().includes('today') || dateText.match(/\d+\s+hours?\s+ago/i)) {
     return new Date().toISOString().split('T')[0];
   }
   
-  if (dateText.toLowerCase().includes('today')) {
-    return new Date().toISOString().split('T')[0];
-  }
   if (dateText.toLowerCase().includes('yesterday')) {
     const date = new Date();
     date.setDate(date.getDate() - 1);
@@ -57,268 +48,207 @@ function parseDate(dateText) {
     return date.toISOString().split('T')[0];
   }
   
-  return null;
+  return new Date().toISOString().split('T')[0];
 }
 
-// Helper to extract summary from article page
-async function fetchArticleSummary(url) {
-  try {
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      timeout: 5000
-    });
-    
-    const $ = cheerio.load(response.data);
-    
-    // Remove script and style tags
-    $('script, style, nav, header, footer, aside').remove();
-    
-    // Try multiple selectors for article content
-    let summary = '';
-    const selectors = [
-      'article p',
-      '.article-content p',
-      '.entry-content p',
-      '.post-content p',
-      '.content p',
-      'main p'
-    ];
-    
-    for (const selector of selectors) {
-      const paragraphs = $(selector).map((i, el) => $(el).text().trim()).get();
-      const combined = paragraphs.filter(p => p.length > 50).slice(0, 3).join(' ');
-      if (combined.length > 100) {
-        summary = combined;
-        break;
-      }
-    }
-    
-    return summary.substring(0, 400) || null;
-  } catch (error) {
-    console.error('Error fetching article summary:', error.message);
-    return null;
-  }
-}
-
-// Scrape Farmers Weekly (FWI)
-async function scrapeFarmersWeekly(keywords) {
+// Scrape Farmers Weekly
+async function scrapeFWI(keywords) {
   const articles = [];
-  
   try {
     const response = await axios.get('https://www.fwi.co.uk/livestock', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      timeout: 10000
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 8000
     });
     
     const $ = cheerio.load(response.data);
     
-    // Look for article links
-    $('a[href*="/livestock"]').each((i, element) => {
-      if (i >= 20) return false; // Limit to 20 articles
-      
-      const $link = $(element);
-      const url = $link.attr('href');
-      
-      if (!url || url === '#') return;
-      
-      const fullUrl = url.startsWith('http') ? url : 'https://www.fwi.co.uk' + url;
-      
-      // Get title from link text or nearby heading
-      let title = $link.text().trim();
-      if (!title || title.length < 10) {
-        title = $link.find('h2, h3, h4').text().trim();
-      }
-      if (!title || title.length < 10) {
-        title = $link.closest('article, .article, div').find('h2, h3, h4').first().text().trim();
-      }
-      
-      if (title && title.length > 10 && !articles.find(a => a.url === fullUrl)) {
-        articles.push({
-          title,
-          url: fullUrl,
-          source: 'Farmers Weekly',
-          needsSummary: true
-        });
-      }
-    });
-  } catch (error) {
-    console.error('Error scraping Farmers Weekly:', error.message);
-  }
-  
-  // Filter by keywords and fetch summaries
-  const filteredArticles = [];
-  for (const article of articles) {
-    const titleLower = article.title.toLowerCase();
-    const matchedKeywords = keywords.filter(keyword => 
-      titleLower.includes(keyword.toLowerCase())
-    );
+    // Try multiple selectors
+    const articleSelectors = [
+      'article',
+      '.article-card',
+      '.story-card',
+      '.post',
+      'div[class*="article"]'
+    ];
     
-    if (matchedKeywords.length > 0) {
-      const summary = await fetchArticleSummary(article.url);
-      if (summary) {
-        filteredArticles.push({
-          id: `fwi-${filteredArticles.length}`,
-          title: article.title,
-          url: article.url,
-          source: article.source,
-          date: new Date().toISOString().split('T')[0],
-          summary: summary,
-          keywords: matchedKeywords
-        });
-      }
+    for (const selector of articleSelectors) {
+      $(selector).each((i, elem) => {
+        if (articles.length >= 15) return false;
+        
+        const $elem = $(elem);
+        const $link = $elem.find('a').first();
+        const href = $link.attr('href');
+        
+        if (!href) return;
+        
+        const url = href.startsWith('http') ? href : `https://www.fwi.co.uk${href}`;
+        
+        // Get title
+        let title = $elem.find('h2, h3, h4, .headline, .title').first().text().trim();
+        if (!title) title = $link.text().trim();
+        
+        // Get summary from any paragraph in the element
+        let summary = $elem.find('p').map((i, p) => $(p).text().trim())
+          .get()
+          .filter(t => t.length > 30)
+          .join(' ')
+          .substring(0, 350);
+        
+        if (!summary) {
+          summary = 'Read the full article for more details about this livestock news story.';
+        }
+        
+        if (title && title.length > 15 && !articles.find(a => a.url === url)) {
+          articles.push({ title, url, summary, source: 'Farmers Weekly' });
+        }
+      });
+      
+      if (articles.length > 0) break;
     }
+  } catch (error) {
+    console.error('FWI error:', error.message);
   }
   
-  return filteredArticles;
+  return articles.filter(article => {
+    const text = (article.title + ' ' + article.summary).toLowerCase();
+    return keywords.some(kw => text.includes(kw.toLowerCase()));
+  }).map((a, i) => ({
+    id: `fwi-${i}`,
+    title: a.title,
+    url: a.url,
+    source: a.source,
+    date: new Date().toISOString().split('T')[0],
+    summary: a.summary,
+    keywords: keywords.filter(kw => (a.title + ' ' + a.summary).toLowerCase().includes(kw.toLowerCase()))
+  }));
 }
 
-// Scrape Western Livestock Journal
-async function scrapeWesternLivestockJournal(keywords) {
-  const articles = [];
-  
-  try {
-    const response = await axios.get('https://www.wlj.net/', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      timeout: 10000
-    });
-    
-    const $ = cheerio.load(response.data);
-    
-    $('a[href*="/"]').each((i, element) => {
-      if (i >= 20) return false;
-      
-      const $link = $(element);
-      const url = $link.attr('href');
-      
-      if (!url || url === '#' || url === '/') return;
-      
-      const fullUrl = url.startsWith('http') ? url : 'https://www.wlj.net' + url;
-      
-      let title = $link.text().trim();
-      if (!title || title.length < 10) {
-        title = $link.find('h2, h3, h4').text().trim();
-      }
-      if (!title || title.length < 10) {
-        title = $link.closest('article, .article, div').find('h2, h3, h4').first().text().trim();
-      }
-      
-      if (title && title.length > 10 && !articles.find(a => a.url === fullUrl)) {
-        articles.push({
-          title,
-          url: fullUrl,
-          source: 'Western Livestock Journal',
-          needsSummary: true
-        });
-      }
-    });
-  } catch (error) {
-    console.error('Error scraping Western Livestock Journal:', error.message);
-  }
-  
-  const filteredArticles = [];
-  for (const article of articles) {
-    const titleLower = article.title.toLowerCase();
-    const matchedKeywords = keywords.filter(keyword => 
-      titleLower.includes(keyword.toLowerCase())
-    );
-    
-    if (matchedKeywords.length > 0) {
-      const summary = await fetchArticleSummary(article.url);
-      if (summary) {
-        filteredArticles.push({
-          id: `wlj-${filteredArticles.length}`,
-          title: article.title,
-          url: article.url,
-          source: article.source,
-          date: new Date().toISOString().split('T')[0],
-          summary: summary,
-          keywords: matchedKeywords
-        });
-      }
-    }
-  }
-  
-  return filteredArticles;
-}
-
-// Scrape The Scottish Farmer
+// Scrape Scottish Farmer
 async function scrapeScottishFarmer(keywords) {
   const articles = [];
-  
   try {
     const response = await axios.get('https://www.thescottishfarmer.co.uk/news/', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      timeout: 10000
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 8000
     });
     
     const $ = cheerio.load(response.data);
     
-    $('a[href*="/news/"]').each((i, element) => {
-      if (i >= 20) return false;
-      
-      const $link = $(element);
-      const url = $link.attr('href');
-      
-      if (!url || url === '#') return;
-      
-      const fullUrl = url.startsWith('http') ? url : 'https://www.thescottishfarmer.co.uk' + url;
-      
-      let title = $link.text().trim();
-      if (!title || title.length < 10) {
-        title = $link.find('h2, h3, h4').text().trim();
-      }
-      if (!title || title.length < 10) {
-        title = $link.closest('article, .article, div').find('h2, h3, h4').first().text().trim();
-      }
-      
-      if (title && title.length > 10 && !articles.find(a => a.url === fullUrl)) {
-        articles.push({
-          title,
-          url: fullUrl,
-          source: 'The Scottish Farmer',
-          needsSummary: true
-        });
-      }
-    });
-  } catch (error) {
-    console.error('Error scraping Scottish Farmer:', error.message);
-  }
-  
-  const filteredArticles = [];
-  for (const article of articles) {
-    const titleLower = article.title.toLowerCase();
-    const matchedKeywords = keywords.filter(keyword => 
-      titleLower.includes(keyword.toLowerCase())
-    );
+    const articleSelectors = ['article', '.article', '.story', 'div[class*="article"]'];
     
-    if (matchedKeywords.length > 0) {
-      const summary = await fetchArticleSummary(article.url);
-      if (summary) {
-        filteredArticles.push({
-          id: `sf-${filteredArticles.length}`,
-          title: article.title,
-          url: article.url,
-          source: article.source,
-          date: new Date().toISOString().split('T')[0],
-          summary: summary,
-          keywords: matchedKeywords
-        });
-      }
+    for (const selector of articleSelectors) {
+      $(selector).each((i, elem) => {
+        if (articles.length >= 15) return false;
+        
+        const $elem = $(elem);
+        const $link = $elem.find('a').first();
+        const href = $link.attr('href');
+        
+        if (!href) return;
+        
+        const url = href.startsWith('http') ? href : `https://www.thescottishfarmer.co.uk${href}`;
+        
+        let title = $elem.find('h2, h3, h4').first().text().trim();
+        if (!title) title = $link.text().trim();
+        
+        let summary = $elem.find('p').map((i, p) => $(p).text().trim())
+          .get()
+          .filter(t => t.length > 30)
+          .join(' ')
+          .substring(0, 350);
+        
+        if (!summary) {
+          summary = 'Read the full article for more details about this livestock news story.';
+        }
+        
+        if (title && title.length > 15 && !articles.find(a => a.url === url)) {
+          articles.push({ title, url, summary, source: 'The Scottish Farmer' });
+        }
+      });
+      
+      if (articles.length > 0) break;
     }
+  } catch (error) {
+    console.error('Scottish Farmer error:', error.message);
   }
   
-  return filteredArticles;
+  return articles.filter(article => {
+    const text = (article.title + ' ' + article.summary).toLowerCase();
+    return keywords.some(kw => text.includes(kw.toLowerCase()));
+  }).map((a, i) => ({
+    id: `sf-${i}`,
+    title: a.title,
+    url: a.url,
+    source: a.source,
+    date: new Date().toISOString().split('T')[0],
+    summary: a.summary,
+    keywords: keywords.filter(kw => (a.title + ' ' + a.summary).toLowerCase().includes(kw.toLowerCase()))
+  }));
 }
 
-// API endpoint to search articles
+// Scrape Farmers Guardian
+async function scrapeFarmersGuardian(keywords) {
+  const articles = [];
+  try {
+    const response = await axios.get('https://www.fginsight.com/news', {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 8000
+    });
+    
+    const $ = cheerio.load(response.data);
+    
+    const articleSelectors = ['article', '.article', '.news-item', 'div[class*="article"]'];
+    
+    for (const selector of articleSelectors) {
+      $(selector).each((i, elem) => {
+        if (articles.length >= 15) return false;
+        
+        const $elem = $(elem);
+        const $link = $elem.find('a').first();
+        const href = $link.attr('href');
+        
+        if (!href) return;
+        
+        const url = href.startsWith('http') ? href : `https://www.fginsight.com${href}`;
+        
+        let title = $elem.find('h2, h3, h4').first().text().trim();
+        if (!title) title = $link.text().trim();
+        
+        let summary = $elem.find('p').map((i, p) => $(p).text().trim())
+          .get()
+          .filter(t => t.length > 30)
+          .join(' ')
+          .substring(0, 350);
+        
+        if (!summary) {
+          summary = 'Read the full article for more details about this livestock news story.';
+        }
+        
+        if (title && title.length > 15 && !articles.find(a => a.url === url)) {
+          articles.push({ title, url, summary, source: 'Farmers Guardian' });
+        }
+      });
+      
+      if (articles.length > 0) break;
+    }
+  } catch (error) {
+    console.error('Farmers Guardian error:', error.message);
+  }
+  
+  return articles.filter(article => {
+    const text = (article.title + ' ' + article.summary).toLowerCase();
+    return keywords.some(kw => text.includes(kw.toLowerCase()));
+  }).map((a, i) => ({
+    id: `fg-${i}`,
+    title: a.title,
+    url: a.url,
+    source: a.source,
+    date: new Date().toISOString().split('T')[0],
+    summary: a.summary,
+    keywords: keywords.filter(kw => (a.title + ' ' + a.summary).toLowerCase().includes(kw.toLowerCase()))
+  }));
+}
+
 app.post('/api/search', async (req, res) => {
   try {
     const { keywords } = req.body;
@@ -329,25 +259,14 @@ app.post('/api/search', async (req, res) => {
     
     console.log('Searching for keywords:', keywords);
     
-    // Scrape all sources in parallel
-    const [
-      farmersWeeklyArticles,
-      westernLivestockArticles,
-      scottishFarmerArticles
-    ] = await Promise.all([
-      scrapeFarmersWeekly(keywords),
-      scrapeWesternLivestockJournal(keywords),
-      scrapeScottishFarmer(keywords)
+    const [fwiArticles, sfArticles, fgArticles] = await Promise.all([
+      scrapeFWI(keywords),
+      scrapeScottishFarmer(keywords),
+      scrapeFarmersGuardian(keywords)
     ]);
     
-    // Combine all articles
-    const allArticles = [
-      ...farmersWeeklyArticles,
-      ...westernLivestockArticles,
-      ...scottishFarmerArticles
-    ];
+    const allArticles = [...fwiArticles, ...sfArticles, ...fgArticles];
     
-    // Sort by date (newest first)
     allArticles.sort((a, b) => new Date(b.date) - new Date(a.date));
     
     console.log(`Found ${allArticles.length} articles`);
@@ -368,12 +287,10 @@ app.post('/api/search', async (req, res) => {
   }
 });
 
-// Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Proxy endpoint for Zapier webhooks (to avoid CORS issues)
 app.post('/api/zapier-proxy', async (req, res) => {
   try {
     const { webhookUrl, data } = req.body;
@@ -382,12 +299,8 @@ app.post('/api/zapier-proxy', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Webhook URL is required' });
     }
     
-    console.log('Proxying to Zapier:', webhookUrl);
-    
     const response = await axios.post(webhookUrl, data, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
+      headers: { 'Content-Type': 'application/json' }
     });
     
     res.json({ 
@@ -406,7 +319,6 @@ app.post('/api/zapier-proxy', async (req, res) => {
   }
 });
 
-// Start server
 app.listen(PORT, () => {
   console.log(`News scraper backend running on port ${PORT}`);
   console.log(`Test endpoint: http://localhost:${PORT}/api/health`);
