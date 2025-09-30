@@ -54,87 +54,45 @@ function parseDate(dateText) {
 // Scrape Farmers Weekly using RSS feed (more reliable)
 async function scrapeFWI(keywords) {
   const articles = [];
-  try {
-    // Try RSS feed first
-    const rssResponse = await axios.get('https://www.fwi.co.uk/livestock/feed', {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      timeout: 8000
-    });
-    
-    const $ = cheerio.load(rssResponse.data, { xmlMode: true });
-    
-    $('item').each((i, elem) => {
-      if (articles.length >= 20) return false;
-      
-      const $item = $(elem);
-      const title = $item.find('title').text().trim();
-      const url = $item.find('link').text().trim();
-      const description = $item.find('description').text().trim();
-      const pubDate = $item.find('pubDate').text().trim();
-      
-      if (title && url) {
-        articles.push({
-          title,
-          url,
-          summary: description || 'Read the full article for more details.',
-          source: 'Farmers Weekly',
-          date: parseDate(pubDate)
-        });
-      }
-    });
-    
-    console.log(`FWI RSS found ${articles.length} articles`);
-    
-  } catch (error) {
-    console.error('FWI RSS error:', error.message);
-    
-    // Fallback to web scraping
+  
+  // Try multiple RSS feeds
+  const rssFeeds = [
+    'https://www.fwi.co.uk/livestock/feed',
+    'https://www.fwi.co.uk/feed'
+  ];
+  
+  for (const feedUrl of rssFeeds) {
     try {
-      const response = await axios.get('https://www.fwi.co.uk/livestock', {
+      console.log(`Trying FWI feed: ${feedUrl}`);
+      const rssResponse = await axios.get(feedUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
-        timeout: 8000
+        timeout: 10000
       });
       
-      const $ = cheerio.load(response.data);
+      const $ = cheerio.load(rssResponse.data, { xmlMode: true });
       
-      const articleSelectors = ['article', '.article-card', '.story-card'];
-      
-      for (const selector of articleSelectors) {
-        $(selector).each((i, elem) => {
-          if (articles.length >= 15) return false;
-          
-          const $elem = $(elem);
-          const $link = $elem.find('a').first();
-          const href = $link.attr('href');
-          
-          if (!href) return;
-          
-          const url = href.startsWith('http') ? href : `https://www.fwi.co.uk${href}`;
-          
-          let title = $elem.find('h2, h3, h4').first().text().trim();
-          if (!title) title = $link.text().trim();
-          
-          let summary = $elem.find('p').map((i, p) => $(p).text().trim())
-            .get()
-            .filter(t => t.length > 30)
-            .join(' ')
-            .substring(0, 350);
-          
-          if (!summary) {
-            summary = 'Read the full article for more details.';
-          }
-          
-          if (title && title.length > 15 && !articles.find(a => a.url === url)) {
-            articles.push({ title, url, summary, source: 'Farmers Weekly', date: new Date().toISOString().split('T')[0] });
-          }
-        });
+      $('item').each((i, elem) => {
+        const $item = $(elem);
+        const title = $item.find('title').text().trim();
+        const url = $item.find('link').text().trim();
+        const description = $item.find('description').text().trim().replace(/<[^>]*>/g, ''); // Strip HTML
+        const pubDate = $item.find('pubDate').text().trim();
         
-        if (articles.length > 0) break;
-      }
+        if (title && url && !articles.find(a => a.url === url)) {
+          articles.push({
+            title,
+            url,
+            summary: description || 'Read the full article for more details.',
+            source: 'Farmers Weekly',
+            date: parseDate(pubDate)
+          });
+        }
+      });
       
-      console.log(`FWI scraping found ${articles.length} articles`);
-    } catch (err) {
-      console.error('FWI scraping fallback error:', err.message);
+      console.log(`FWI feed ${feedUrl} found ${articles.length} total articles so far`);
+      
+    } catch (error) {
+      console.error(`FWI feed ${feedUrl} error:`, error.message);
     }
   }
   
@@ -156,127 +114,111 @@ async function scrapeFWI(keywords) {
   }));
 }
 
-// Scrape Scottish Farmer
+// Scrape Scottish Farmer using RSS
 async function scrapeScottishFarmer(keywords) {
   const articles = [];
+  
   try {
-    const response = await axios.get('https://www.thescottishfarmer.co.uk/news/', {
+    console.log('Trying Scottish Farmer RSS feed');
+    const rssResponse = await axios.get('https://www.thescottishfarmer.co.uk/news/rss/', {
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      timeout: 8000
+      timeout: 10000
     });
     
-    const $ = cheerio.load(response.data);
+    const $ = cheerio.load(rssResponse.data, { xmlMode: true });
     
-    const articleSelectors = ['article', '.article', '.story', 'div[class*="article"]'];
-    
-    for (const selector of articleSelectors) {
-      $(selector).each((i, elem) => {
-        if (articles.length >= 15) return false;
-        
-        const $elem = $(elem);
-        const $link = $elem.find('a').first();
-        const href = $link.attr('href');
-        
-        if (!href) return;
-        
-        const url = href.startsWith('http') ? href : `https://www.thescottishfarmer.co.uk${href}`;
-        
-        let title = $elem.find('h2, h3, h4').first().text().trim();
-        if (!title) title = $link.text().trim();
-        
-        let summary = $elem.find('p').map((i, p) => $(p).text().trim())
-          .get()
-          .filter(t => t.length > 30)
-          .join(' ')
-          .substring(0, 350);
-        
-        if (!summary) {
-          summary = 'Read the full article for more details about this livestock news story.';
-        }
-        
-        if (title && title.length > 15 && !articles.find(a => a.url === url)) {
-          articles.push({ title, url, summary, source: 'The Scottish Farmer' });
-        }
-      });
+    $('item').each((i, elem) => {
+      const $item = $(elem);
+      const title = $item.find('title').text().trim();
+      const url = $item.find('link').text().trim();
+      const description = $item.find('description').text().trim().replace(/<[^>]*>/g, '');
+      const pubDate = $item.find('pubDate').text().trim();
       
-      if (articles.length > 0) break;
-    }
+      if (title && url) {
+        articles.push({
+          title,
+          url,
+          summary: description || 'Read the full article for more details.',
+          source: 'The Scottish Farmer',
+          date: parseDate(pubDate)
+        });
+      }
+    });
+    
+    console.log(`Scottish Farmer RSS found ${articles.length} articles`);
+    
   } catch (error) {
-    console.error('Scottish Farmer error:', error.message);
+    console.error('Scottish Farmer RSS error:', error.message);
   }
   
-  return articles.filter(article => {
+  const filtered = articles.filter(article => {
     const text = (article.title + ' ' + article.summary).toLowerCase();
     return keywords.some(kw => text.includes(kw.toLowerCase()));
-  }).map((a, i) => ({
+  });
+  
+  console.log(`Scottish Farmer filtered to ${filtered.length} articles`);
+  
+  return filtered.map((a, i) => ({
     id: `sf-${i}`,
     title: a.title,
     url: a.url,
     source: a.source,
-    date: new Date().toISOString().split('T')[0],
+    date: a.date || new Date().toISOString().split('T')[0],
     summary: a.summary,
     keywords: keywords.filter(kw => (a.title + ' ' + a.summary).toLowerCase().includes(kw.toLowerCase()))
   }));
 }
 
-// Scrape Farmers Guardian
+// Scrape Farmers Guardian using RSS
 async function scrapeFarmersGuardian(keywords) {
   const articles = [];
+  
   try {
-    const response = await axios.get('https://www.fginsight.com/news', {
+    console.log('Trying Farmers Guardian RSS feed');
+    const rssResponse = await axios.get('https://www.fginsight.com/news/feed', {
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      timeout: 8000
+      timeout: 10000
     });
     
-    const $ = cheerio.load(response.data);
+    const $ = cheerio.load(rssResponse.data, { xmlMode: true });
     
-    const articleSelectors = ['article', '.article', '.news-item', 'div[class*="article"]'];
-    
-    for (const selector of articleSelectors) {
-      $(selector).each((i, elem) => {
-        if (articles.length >= 15) return false;
-        
-        const $elem = $(elem);
-        const $link = $elem.find('a').first();
-        const href = $link.attr('href');
-        
-        if (!href) return;
-        
-        const url = href.startsWith('http') ? href : `https://www.fginsight.com${href}`;
-        
-        let title = $elem.find('h2, h3, h4').first().text().trim();
-        if (!title) title = $link.text().trim();
-        
-        let summary = $elem.find('p').map((i, p) => $(p).text().trim())
-          .get()
-          .filter(t => t.length > 30)
-          .join(' ')
-          .substring(0, 350);
-        
-        if (!summary) {
-          summary = 'Read the full article for more details about this livestock news story.';
-        }
-        
-        if (title && title.length > 15 && !articles.find(a => a.url === url)) {
-          articles.push({ title, url, summary, source: 'Farmers Guardian' });
-        }
-      });
+    $('item').each((i, elem) => {
+      const $item = $(elem);
+      const title = $item.find('title').text().trim();
+      const url = $item.find('link').text().trim();
+      const description = $item.find('description').text().trim().replace(/<[^>]*>/g, '');
+      const pubDate = $item.find('pubDate').text().trim();
       
-      if (articles.length > 0) break;
-    }
+      if (title && url) {
+        articles.push({
+          title,
+          url,
+          summary: description || 'Read the full article for more details.',
+          source: 'Farmers Guardian',
+          date: parseDate(pubDate)
+        });
+      }
+    });
+    
+    console.log(`Farmers Guardian RSS found ${articles.length} articles`);
+    
   } catch (error) {
-    console.error('Farmers Guardian error:', error.message);
+    console.error('Farmers Guardian RSS error:', error.message);
   }
   
-  return articles.filter(article => {
+  const filtered = articles.filter(article => {
     const text = (article.title + ' ' + article.summary).toLowerCase();
     return keywords.some(kw => text.includes(kw.toLowerCase()));
-  }).map((a, i) => ({
+  });
+  
+  console.log(`Farmers Guardian filtered to ${filtered.length} articles`);
+  
+  return filtered.map((a, i) => ({
     id: `fg-${i}`,
     title: a.title,
     url: a.url,
     source: a.source,
-    date: new Date().toISOString().split('T')[0],
+    date: a.date || new Date().toISOString().split('T')[0],
     summary: a.summary,
     keywords: keywords.filter(kw => (a.title + ' ' + a.summary).toLowerCase().includes(kw.toLowerCase()))
   }));
