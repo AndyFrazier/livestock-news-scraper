@@ -51,73 +51,106 @@ function parseDate(dateText) {
   return new Date().toISOString().split('T')[0];
 }
 
-// Scrape Farmers Weekly
+// Scrape Farmers Weekly using RSS feed (more reliable)
 async function scrapeFWI(keywords) {
   const articles = [];
   try {
-    const response = await axios.get('https://www.fwi.co.uk/livestock', {
+    // Try RSS feed first
+    const rssResponse = await axios.get('https://www.fwi.co.uk/livestock/feed', {
       headers: { 'User-Agent': 'Mozilla/5.0' },
       timeout: 8000
     });
     
-    const $ = cheerio.load(response.data);
+    const $ = cheerio.load(rssResponse.data, { xmlMode: true });
     
-    // Try multiple selectors
-    const articleSelectors = [
-      'article',
-      '.article-card',
-      '.story-card',
-      '.post',
-      'div[class*="article"]'
-    ];
+    $('item').each((i, elem) => {
+      if (articles.length >= 20) return false;
+      
+      const $item = $(elem);
+      const title = $item.find('title').text().trim();
+      const url = $item.find('link').text().trim();
+      const description = $item.find('description').text().trim();
+      const pubDate = $item.find('pubDate').text().trim();
+      
+      if (title && url) {
+        articles.push({
+          title,
+          url,
+          summary: description || 'Read the full article for more details.',
+          source: 'Farmers Weekly',
+          date: parseDate(pubDate)
+        });
+      }
+    });
     
-    for (const selector of articleSelectors) {
-      $(selector).each((i, elem) => {
-        if (articles.length >= 15) return false;
-        
-        const $elem = $(elem);
-        const $link = $elem.find('a').first();
-        const href = $link.attr('href');
-        
-        if (!href) return;
-        
-        const url = href.startsWith('http') ? href : `https://www.fwi.co.uk${href}`;
-        
-        // Get title
-        let title = $elem.find('h2, h3, h4, .headline, .title').first().text().trim();
-        if (!title) title = $link.text().trim();
-        
-        // Get summary from any paragraph in the element
-        let summary = $elem.find('p').map((i, p) => $(p).text().trim())
-          .get()
-          .filter(t => t.length > 30)
-          .join(' ')
-          .substring(0, 350);
-        
-        if (!summary) {
-          summary = 'Read the full article for more details about this livestock news story.';
-        }
-        
-        if (title && title.length > 15 && !articles.find(a => a.url === url)) {
-          articles.push({ title, url, summary, source: 'Farmers Weekly' });
-        }
+    console.log(`FWI RSS found ${articles.length} articles`);
+    
+  } catch (error) {
+    console.error('FWI RSS error:', error.message);
+    
+    // Fallback to web scraping
+    try {
+      const response = await axios.get('https://www.fwi.co.uk/livestock', {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        timeout: 8000
       });
       
-      if (articles.length > 0) break;
+      const $ = cheerio.load(response.data);
+      
+      const articleSelectors = ['article', '.article-card', '.story-card'];
+      
+      for (const selector of articleSelectors) {
+        $(selector).each((i, elem) => {
+          if (articles.length >= 15) return false;
+          
+          const $elem = $(elem);
+          const $link = $elem.find('a').first();
+          const href = $link.attr('href');
+          
+          if (!href) return;
+          
+          const url = href.startsWith('http') ? href : `https://www.fwi.co.uk${href}`;
+          
+          let title = $elem.find('h2, h3, h4').first().text().trim();
+          if (!title) title = $link.text().trim();
+          
+          let summary = $elem.find('p').map((i, p) => $(p).text().trim())
+            .get()
+            .filter(t => t.length > 30)
+            .join(' ')
+            .substring(0, 350);
+          
+          if (!summary) {
+            summary = 'Read the full article for more details.';
+          }
+          
+          if (title && title.length > 15 && !articles.find(a => a.url === url)) {
+            articles.push({ title, url, summary, source: 'Farmers Weekly', date: new Date().toISOString().split('T')[0] });
+          }
+        });
+        
+        if (articles.length > 0) break;
+      }
+      
+      console.log(`FWI scraping found ${articles.length} articles`);
+    } catch (err) {
+      console.error('FWI scraping fallback error:', err.message);
     }
-  } catch (error) {
-    console.error('FWI error:', error.message);
   }
   
-  return articles.filter(article => {
+  const filtered = articles.filter(article => {
     const text = (article.title + ' ' + article.summary).toLowerCase();
     return keywords.some(kw => text.includes(kw.toLowerCase()));
-  }).map((a, i) => ({
+  });
+  
+  console.log(`FWI filtered to ${filtered.length} articles matching keywords`);
+  
+  return filtered.map((a, i) => ({
     id: `fwi-${i}`,
     title: a.title,
     url: a.url,
     source: a.source,
-    date: new Date().toISOString().split('T')[0],
+    date: a.date || new Date().toISOString().split('T')[0],
     summary: a.summary,
     keywords: keywords.filter(kw => (a.title + ' ' + a.summary).toLowerCase().includes(kw.toLowerCase()))
   }));
