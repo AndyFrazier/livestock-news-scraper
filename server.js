@@ -291,6 +291,39 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Debug endpoint to see raw scraped data
+app.get('/api/debug/fwi', async (req, res) => {
+  try {
+    const response = await axios.get('https://www.fwi.co.uk/livestock', {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 8000
+    });
+    
+    const $ = cheerio.load(response.data);
+    const foundLinks = [];
+    
+    $('a').each((i, elem) => {
+      if (i >= 50) return false;
+      const href = $(elem).attr('href');
+      const text = $(elem).text().trim();
+      if (href && text.length > 10) {
+        foundLinks.push({ href, text: text.substring(0, 100) });
+      }
+    });
+    
+    res.json({
+      totalLinks: foundLinks.length,
+      links: foundLinks,
+      containsBluetongue: foundLinks.filter(l => 
+        l.text.toLowerCase().includes('bluetongue') || 
+        l.href.includes('bluetongue')
+      )
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/zapier-proxy', async (req, res) => {
   try {
     const { webhookUrl, data } = req.body;
