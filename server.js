@@ -66,7 +66,13 @@ async function scrapeOwnPressReleases(keywords) {
       timeout: 10000
     });
     
+    console.log('WordPress RSS status:', response.status);
+    console.log('WordPress RSS response length:', response.data.length);
+    
     const $ = cheerio.load(response.data, { xmlMode: true });
+    
+    const itemCount = $('item').length;
+    console.log('WordPress RSS found', itemCount, 'items');
     
     $('item').each((i, elem) => {
       const $item = $(elem);
@@ -74,6 +80,8 @@ async function scrapeOwnPressReleases(keywords) {
       const url = $item.find('link').text().trim();
       const description = $item.find('description').text().trim().replace(/<[^>]*>/g, '');
       const pubDate = $item.find('pubDate').text().trim();
+      
+      console.log('Processing WordPress item:', { title, url, pubDate });
       
       if (title && url) {
         articles.push({
