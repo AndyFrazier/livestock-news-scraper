@@ -358,7 +358,7 @@ app.post('/api/search', async (req, res) => {
       scrapeFarmersGuardian(keywords)
     ]);
     
-    const allArticles = [...googleArticles, ...ownPressReleases, ...fwiArticles, ...sfArticles, ...fgArticles];
+    const allArticles = [...googleArticles, ...fwiArticles, ...sfArticles, ...fgArticles];
     
     // Remove duplicates by URL
     const uniqueArticles = allArticles.filter((article, index, self) =>
@@ -376,7 +376,11 @@ app.post('/api/search', async (req, res) => {
     
     recentArticles.sort((a, b) => new Date(b.date) - new Date(a.date));
     
-    console.log(`Found ${uniqueArticles.length} unique articles, ${recentArticles.length} from last 7 days`);
+    // Insert own press releases in the middle (not at top)
+    const middleIndex = Math.floor(recentArticles.length / 2);
+    recentArticles.splice(middleIndex, 0, ...ownPressReleases);
+    
+    console.log(`Found ${uniqueArticles.length} unique articles, ${recentArticles.length} from last 7 days (including ${ownPressReleases.length} press releases inserted at position ${middleIndex})`);
     
     res.json({
       success: true,
