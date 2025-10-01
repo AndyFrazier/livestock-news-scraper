@@ -51,47 +51,39 @@ function parseDate(dateText) {
   return new Date().toISOString().split('T')[0];
 }
 
-// Scrape Toplines and Tales Press Releases
+// Scrape Toplines and Tales Press Releases from WordPress RSS
 async function scrapeOwnPressReleases(keywords) {
   const articles = [];
   
   try {
-    console.log('Fetching Toplines and Tales press releases');
+    console.log('Fetching Toplines and Tales press releases from WordPress');
     
-    // Replace this URL with wherever you host your press release page
-    const pressReleaseUrl = 'https://sites.google.com/view/toplinesandtales/home';
+    // Your WordPress RSS feed - change this to your actual WordPress site
+    const rssFeedUrl = 'https://andyfrazier.wordpress.com/2025/10/01/new-weekly-newsletter-launches-for-pedigree-livestock-enthusiasts/';
     
-    const response = await axios.get(pressReleaseUrl, {
+    const response = await axios.get(rssFeedUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
       timeout: 10000
     });
     
-    const $ = cheerio.load(response.data);
+    const $ = cheerio.load(response.data, { xmlMode: true });
     
-    // Find each press release on the page
-    $('.press-release').each((i, elem) => {
-      const $elem = $(elem);
+    $('item').each((i, elem) => {
+      const $item = $(elem);
+      const title = $item.find('title').text().trim();
+      const url = $item.find('link').text().trim();
+      const description = $item.find('description').text().trim().replace(/<[^>]*>/g, '');
+      const pubDate = $item.find('pubDate').text().trim();
       
-      // Skip the instructions section
-      if ($elem.find('h2').text().includes('How to Add')) return;
-      
-      const title = $elem.find('h2').text().trim();
-      const date = $elem.find('.press-release-meta').text().match(/Date:\s*([^|]+)/)?.[1]?.trim();
-      
-      // Get the full content
-      const content = $elem.find('.press-release-content p').map((i, p) => 
-        $(p).text().trim()
-      ).get().join(' ').substring(0, 400);
-      
-      if (title && !title.includes('[Your Press Release')) {
+      if (title && url) {
         articles.push({
           id: `ttpr-${i}`,
           title,
-          url: pressReleaseUrl + '#release-' + i,
+          url,
           source: 'Toplines and Tales',
-          date: parseDate(date) || new Date().toISOString().split('T')[0],
-          summary: content || 'Read the full press release for details.',
-          keywords: keywords // Include all keywords so it always shows up
+          date: parseDate(pubDate) || new Date().toISOString().split('T')[0],
+          summary: description.substring(0, 400) || 'Read the full press release for details.',
+          keywords: keywords // Always show up regardless of keywords
         });
       }
     });
