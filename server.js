@@ -65,6 +65,15 @@ async function scrapeOwnPressReleases(keywords) {
       date: '2025-10-01',
       summary: 'Toplines and Tales, a new weekly newsletter dedicated to pedigree cattle and sheep news, officially launches today, providing livestock breeders and enthusiasts with curated news from across the UK farming press.',
       keywords: ['pedigree', 'cattle', 'sheep', 'livestock', 'newsletter']
+    },
+    {
+      id: 'ttpr-2',
+      title: 'Podcaster and Sheep Breeder Launches Free Sheep Management Software',
+      url: 'https://andyfrazier.wordpress.com/2025/10/01/podcaster-and-sheep-breeder-launches-free-sheep-management-software/',
+      source: 'Toplines and Tales',
+      date: '2025-10-01',
+      summary: 'A new free sheep management software has been launched by podcaster and sheep breeder Andy Frazier, designed to help farmers track their flocks and manage breeding records.',
+      keywords: ['sheep', 'software', 'management', 'breeding', 'livestock']
     }
   ];
   
@@ -377,10 +386,16 @@ app.post('/api/search', async (req, res) => {
     recentArticles.sort((a, b) => new Date(b.date) - new Date(a.date));
     
     // Insert own press releases in the middle (not at top)
-    const middleIndex = Math.floor(recentArticles.length / 2);
-    recentArticles.splice(middleIndex, 0, ...ownPressReleases);
+    // Only insert if there are other articles, otherwise just add them
+    if (recentArticles.length > 0 && ownPressReleases.length > 0) {
+      const middleIndex = Math.floor(recentArticles.length / 2);
+      recentArticles.splice(middleIndex, 0, ...ownPressReleases);
+    } else {
+      // If no other articles, just add press releases
+      recentArticles.push(...ownPressReleases);
+    }
     
-    console.log(`Found ${uniqueArticles.length} unique articles, ${recentArticles.length} from last 7 days (including ${ownPressReleases.length} press releases inserted at position ${middleIndex})`);
+    console.log(`Found ${uniqueArticles.length} unique articles, ${recentArticles.length} total (including ${ownPressReleases.length} press releases)`);
     
     res.json({
       success: true,
