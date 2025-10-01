@@ -51,6 +51,60 @@ function parseDate(dateText) {
   return new Date().toISOString().split('T')[0];
 }
 
+// Scrape Toplines and Tales Press Releases
+async function scrapeOwnPressReleases(keywords) {
+  const articles = [];
+  
+  try {
+    console.log('Fetching Toplines and Tales press releases');
+    
+    // Replace this URL with wherever you host your press release page
+    const pressReleaseUrl = 'https://sites.google.com/view/toplinesandtales/home';
+    
+    const response = await axios.get(pressReleaseUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 10000
+    });
+    
+    const $ = cheerio.load(response.data);
+    
+    // Find each press release on the page
+    $('.press-release').each((i, elem) => {
+      const $elem = $(elem);
+      
+      // Skip the instructions section
+      if ($elem.find('h2').text().includes('How to Add')) return;
+      
+      const title = $elem.find('h2').text().trim();
+      const date = $elem.find('.press-release-meta').text().match(/Date:\s*([^|]+)/)?.[1]?.trim();
+      
+      // Get the full content
+      const content = $elem.find('.press-release-content p').map((i, p) => 
+        $(p).text().trim()
+      ).get().join(' ').substring(0, 400);
+      
+      if (title && !title.includes('[Your Press Release')) {
+        articles.push({
+          id: `ttpr-${i}`,
+          title,
+          url: pressReleaseUrl + '#release-' + i,
+          source: 'Toplines and Tales',
+          date: parseDate(date) || new Date().toISOString().split('T')[0],
+          summary: content || 'Read the full press release for details.',
+          keywords: keywords // Include all keywords so it always shows up
+        });
+      }
+    });
+    
+    console.log(`Found ${articles.length} Toplines and Tales press releases`);
+    
+  } catch (error) {
+    console.error('Error fetching Toplines and Tales press releases:', error.message);
+  }
+  
+  return articles;
+}
+
 // Scrape using Google News RSS (most reliable)
 async function scrapeGoogleNews(keywords) {
   const articles = [];
@@ -284,14 +338,15 @@ app.post('/api/search', async (req, res) => {
     
     console.log('Searching for keywords:', keywords);
     
-    const [googleArticles, fwiArticles, sfArticles, fgArticles] = await Promise.all([
+    const [googleArticles, ownPressReleases, fwiArticles, sfArticles, fgArticles] = await Promise.all([
       scrapeGoogleNews(keywords),
+      scrapeOwnPressReleases(keywords),
       scrapeFWI(keywords),
       scrapeScottishFarmer(keywords),
       scrapeFarmersGuardian(keywords)
     ]);
     
-    const allArticles = [...googleArticles, ...fwiArticles, ...sfArticles, ...fgArticles];
+    const allArticles = [...googleArticles, ...ownPressReleases, ...fwiArticles, ...sfArticles, ...fgArticles];
     
     // Remove duplicates by URL
     const uniqueArticles = allArticles.filter((article, index, self) =>
