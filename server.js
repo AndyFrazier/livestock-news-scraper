@@ -58,8 +58,8 @@ async function scrapeOwnPressReleases(keywords) {
   try {
     console.log('Fetching Toplines and Tales press releases from WordPress');
     
-    // Your WordPress RSS feed - change this to your actual WordPress site
-    const rssFeedUrl = 'https://andyfrazier.wordpress.com/2025/10/01/new-weekly-newsletter-launches-for-pedigree-livestock-enthusiasts/';
+    // Your WordPress RSS feed
+    const rssFeedUrl = 'https://andyfrazier.wordpress.com/feed';
     
     const response = await axios.get(rssFeedUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
