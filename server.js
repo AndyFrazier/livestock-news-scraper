@@ -55,10 +55,25 @@ function parseDate(dateText) {
 async function scrapeOwnPressReleases(keywords) {
   const articles = [];
   
+  // Hardcoded press releases (temporary until WordPress RSS works)
+  const hardcodedReleases = [
+    {
+      id: 'ttpr-1',
+      title: 'New Weekly Newsletter Launches for Pedigree Livestock Enthusiasts',
+      url: 'https://andyfrazier.wordpress.com/2025/10/01/new-weekly-newsletter-launches-for-pedigree-livestock-enthusiasts/',
+      source: 'Toplines and Tales',
+      date: '2025-10-01',
+      summary: 'Toplines and Tales, a new weekly newsletter dedicated to pedigree cattle and sheep news, officially launches today, providing livestock breeders and enthusiasts with curated news from across the UK farming press.',
+      keywords: ['pedigree', 'cattle', 'sheep', 'livestock', 'newsletter']
+    }
+  ];
+  
+  articles.push(...hardcodedReleases);
+  
+  // Also try WordPress RSS
   try {
     console.log('Fetching Toplines and Tales press releases from WordPress');
     
-    // Your WordPress RSS feed
     const rssFeedUrl = 'https://andyfrazier.wordpress.com/feed';
     
     const response = await axios.get(rssFeedUrl, {
@@ -67,7 +82,6 @@ async function scrapeOwnPressReleases(keywords) {
     });
     
     console.log('WordPress RSS status:', response.status);
-    console.log('WordPress RSS response length:', response.data.length);
     
     const $ = cheerio.load(response.data, { xmlMode: true });
     
@@ -81,26 +95,24 @@ async function scrapeOwnPressReleases(keywords) {
       const description = $item.find('description').text().trim().replace(/<[^>]*>/g, '');
       const pubDate = $item.find('pubDate').text().trim();
       
-      console.log('Processing WordPress item:', { title, url, pubDate });
-      
-      if (title && url) {
+      if (title && url && !articles.find(a => a.url === url)) {
         articles.push({
-          id: `ttpr-${i}`,
+          id: `ttpr-rss-${i}`,
           title,
           url,
           source: 'Toplines and Tales',
           date: parseDate(pubDate) || new Date().toISOString().split('T')[0],
           summary: description.substring(0, 400) || 'Read the full press release for details.',
-          keywords: keywords // Always show up regardless of keywords
+          keywords: keywords
         });
       }
     });
     
-    console.log(`Found ${articles.length} Toplines and Tales press releases`);
-    
   } catch (error) {
-    console.error('Error fetching Toplines and Tales press releases:', error.message);
+    console.error('Error fetching WordPress RSS:', error.message);
   }
+  
+  console.log(`Found ${articles.length} Toplines and Tales press releases total`);
   
   return articles;
 }
